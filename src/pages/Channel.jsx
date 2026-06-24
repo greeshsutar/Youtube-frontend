@@ -79,10 +79,7 @@ export default function Channel() {
             </div>
 
             {uploadedVideos.length === 0 ? (
-              <div className="mt-3 text-sm text-gray-500">
-                No uploaded videos info available from <code className="rounded bg-gray-100 px-1">/api/channel</code>.
-                {/* UI will still work if backend includes videos */}
-              </div>
+              <div className="mt-3 text-sm text-gray-500">No videos uploaded yet</div>
             ) : (
               <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {uploadedVideos.map((v) => (

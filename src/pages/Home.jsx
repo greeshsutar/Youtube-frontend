@@ -51,6 +51,7 @@ export default function Home({ searchKey }) {
 
   useEffect(() => {
     let active = true
+
     const fetchVideos = async () => {
       try {
         setLoading(true)
@@ -103,11 +104,17 @@ export default function Home({ searchKey }) {
       {error && <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
 
       {!loading && !error && (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((v) => (
-            <VideoCard key={v._id || v.id} video={v} />
-          ))}
-        </div>
+        <>
+          {filtered.length === 0 ? (
+            <div className="text-sm text-gray-500">No videos found</div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((v) => (
+                <VideoCard key={v._id || v.id} video={v} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </main>
   )

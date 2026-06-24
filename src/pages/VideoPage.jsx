@@ -15,7 +15,7 @@ function toAbsoluteMediaUrl(src) {
 }
 
 function youtubeEmbedUrl(url) {
-  // Supports: youtu.be/<id>, youtube.com/watch?v=<id>, youtube.com/embed/<id>
+  // Supports: youtu.be/<id>, youtube.com/watch?v=<id>, youtube.com/embed/<id>, youtube.com/shorts/<id>
   if (!url) return ''
   const u = String(url)
   const ytMatch = u.match(
@@ -24,6 +24,14 @@ function youtubeEmbedUrl(url) {
   const id = ytMatch?.[1]
   if (!id) return ''
   return `https://www.youtube.com/embed/${id}`
+}
+
+function isYoutubeUrl(url) {
+  return !!youtubeEmbedUrl(url)
+}
+
+function extractUserIdFromAnything(v) {
+  return v?._id ?? v?.id ?? v ?? null
 }
 
 export default function VideoPage() {
@@ -39,14 +47,17 @@ export default function VideoPage() {
   const [commentsBusy, setCommentsBusy] = useState(false)
   const [commentText, setCommentText] = useState('')
 
-  const embedSrc = useMemo(() => youtubeEmbedUrl(video?.videoUrl || video?.video || ''), [video])
+  const rawSrc = video?.videoUrl || video?.video || ''
+
+  const embedSrc = useMemo(() => {
+    return isYoutubeUrl(rawSrc) ? youtubeEmbedUrl(rawSrc) : ''
+  }, [rawSrc])
 
   const videoSrc = useMemo(() => {
-    const src = video?.videoUrl || video?.video || ''
-    if (!src) return ''
-    if (youtubeEmbedUrl(src)) return ''
-    return toAbsoluteMediaUrl(src)
-  }, [video])
+    if (!rawSrc) return ''
+    if (isYoutubeUrl(rawSrc)) return ''
+    return toAbsoluteMediaUrl(rawSrc)
+  }, [rawSrc])
 
   const thumbSrc = useMemo(() => toAbsoluteMediaUrl(video?.thumbnailUrl || video?.thumbnail || ''), [video])
 
@@ -74,6 +85,14 @@ export default function VideoPage() {
         if (!active) return
 
         await fetchVideoAndComments()
+
+        // Views increment (best-effort)
+        try {
+          await api.put(`/api/videos/views/${id}`)
+          // Sync UI with updated views if backend returns it in the video fetch.
+          // If not, keep the optimistic value until re-fetch.
+          setVideo((prev) => (prev ? { ...prev, views: typeof prev.views === 'number' ? prev.views + 1 : prev.views } : prev))
+        } catch (_) {}
       } catch (e) {
         if (!active) return
         setError(e?.response?.data?.message || e?.message || 'Failed to fetch video')
@@ -92,6 +111,17 @@ export default function VideoPage() {
   const onReact = async (value) => {
     setLikesBusy(true)
     setError('')
+
+    // Optimistic UI update
+    setVideo((prev) => {
+      if (!prev) return prev
+      const currentLikes = typeof prev.likes === 'number' ? prev.likes : Number(prev.likes) || 0
+      const currentDislikes = typeof prev.dislikes === 'number' ? prev.dislikes : Number(prev.dislikes) || 0
+
+      if (value === 'like') return { ...prev, likes: currentLikes + 1 }
+      return { ...prev, dislikes: currentDislikes + 1 }
+    })
+
     try {
       // Backend exposes POST /api/likes/like and POST /api/likes/dislike
       const nextEndpoint = value === 'like' ? '/api/likes/like' : '/api/likes/dislike'
@@ -99,6 +129,10 @@ export default function VideoPage() {
       await fetchVideoAndComments()
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to update reaction')
+      // Re-sync on error
+      try {
+        await fetchVideoAndComments()
+      } catch (_) {}
     } finally {
       setLikesBusy(false)
     }
@@ -204,8 +238,10 @@ export default function VideoPage() {
                 <div className="mt-3 max-h-[420px] space-y-3 overflow-auto pr-1">
                   {comments.length === 0 && <div className="text-sm text-gray-500">No comments yet.</div>}
                   {comments.map((c) => {
-                    const commentAuthorId = c?.author?._id || c?.author?.id || c?.author
-                    const canDelete = !!user && String(commentAuthorId) === String(user?.id)
+                    const commentUserId = extractUserIdFromAnything(c?.user) || extractUserIdFromAnything(c?.author) || null
+                    const loggedInUserId = extractUserIdFromAnything(user) || null
+                    const canDelete = !!loggedInUserId && !!commentUserId && String(commentUserId) === String(loggedInUserId)
+
                     return (
                       <Comment
                         key={c._id || c.id}
