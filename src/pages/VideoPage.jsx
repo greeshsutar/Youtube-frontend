@@ -5,6 +5,27 @@ import Loader from '../components/Loader'
 import Comment from '../components/Comment'
 import { AuthContext } from '../context/AuthContext'
 
+function toAbsoluteMediaUrl(src) {
+  if (!src) return ''
+  if (src.startsWith('uploads/')) return `http://localhost:5000/${src}`
+  if (src.startsWith('/uploads/')) return `http://localhost:5000${src}`
+  if (/^https?:\/\//i.test(src)) return src
+  if (src === 'uploads/image.jpg') return 'http://localhost:5000/uploads/image.jpg'
+  return src
+}
+
+function youtubeEmbedUrl(url) {
+  // Supports: youtu.be/<id>, youtube.com/watch?v=<id>, youtube.com/embed/<id>
+  if (!url) return ''
+  const u = String(url)
+  const ytMatch = u.match(
+    /(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/))([A-Za-z0-9_-]{6,})/,
+  )
+  const id = ytMatch?.[1]
+  if (!id) return ''
+  return `https://www.youtube.com/embed/${id}`
+}
+
 export default function VideoPage() {
   const { id } = useParams()
   const { user } = useContext(AuthContext)
@@ -18,33 +39,41 @@ export default function VideoPage() {
   const [commentsBusy, setCommentsBusy] = useState(false)
   const [commentText, setCommentText] = useState('')
 
+  const embedSrc = useMemo(() => youtubeEmbedUrl(video?.videoUrl || video?.video || ''), [video])
+
   const videoSrc = useMemo(() => {
-    const src = video?.videoUrl || video?.video || video?.src
+    const src = video?.videoUrl || video?.video || ''
     if (!src) return ''
-    if (src === 'uploads/image.jpg') return `http://localhost:5000/uploads/image.jpg`
-    if (src.startsWith('uploads/')) return `http://localhost:5000/${src}`
-    if (/^https?:\/\//i.test(src)) return src
-    return src
+    if (youtubeEmbedUrl(src)) return ''
+    return toAbsoluteMediaUrl(src)
   }, [video])
 
-  const thumbSrc = useMemo(() => {
-    const thumb = video?.thumbnail || video?.thumbnailUrl || ''
-    if (!thumb) return ''
-    if (thumb.startsWith('uploads/')) return `http://localhost:5000/${thumb}`
-    if (/^https?:\/\//i.test(thumb)) return thumb
-    return thumb
-  }, [video])
+  const thumbSrc = useMemo(() => toAbsoluteMediaUrl(video?.thumbnailUrl || video?.thumbnail || ''), [video])
+
+  const fetchVideoAndComments = async () => {
+    const [videoRes, commentsRes] = await Promise.all([
+      api.get(`/api/videos/${id}`),
+      api.get(`/api/comments/video/${id}`),
+    ])
+
+    // video controller returns { success, data: { ... } } from backend; current frontend previously used res?.data
+    const nextVideo = videoRes?.data?.data || videoRes?.data
+    const nextComments = commentsRes?.data?.data || commentsRes?.data || []
+
+    setVideo(nextVideo)
+    setComments(nextComments)
+  }
 
   useEffect(() => {
     let active = true
 
-    const fetchVideo = async () => {
+    const run = async () => {
       try {
         setLoadingVideo(true)
         setError('')
-        const res = await api.get(`/api/videos/${id}`)
         if (!active) return
-        setVideo(res?.data)
+
+        await fetchVideoAndComments()
       } catch (e) {
         if (!active) return
         setError(e?.response?.data?.message || e?.message || 'Failed to fetch video')
@@ -53,40 +82,29 @@ export default function VideoPage() {
       }
     }
 
-    const fetchComments = async () => {
-      try {
-        setCommentsBusy(true)
-        const res = await api.get(`/api/comments/video/${id}`)
-        if (!active) return
-        setComments(res?.data || [])
-      } catch {
-        // keep UI working even if comments fail
-      } finally {
-        if (active) setCommentsBusy(false)
-      }
-    }
-
-    fetchVideo()
-    fetchComments()
-
+    run()
     return () => {
       active = false
     }
-  }, [id, user])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
-  const onLike = async (type) => {
+  const onReact = async (value) => {
     setLikesBusy(true)
+    setError('')
     try {
-      if (type === 'like') await api.put(`/api/videos/like/${id}`)
-      else await api.put(`/api/videos/dislike/${id}`)
-      const res = await api.get(`/api/videos/${id}`)
-      setVideo(res?.data)
+      // Backend exposes POST /api/likes/like and POST /api/likes/dislike
+      const nextEndpoint = value === 'like' ? '/api/likes/like' : '/api/likes/dislike'
+      await api.post(nextEndpoint, { videoId: id })
+      await fetchVideoAndComments()
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Failed to update reaction')
     } finally {
       setLikesBusy(false)
     }
   }
+
+  // keep commentsBusy for UX; fetch is done together with video
 
   const onAddComment = async (e) => {
     e.preventDefault()
@@ -95,9 +113,8 @@ export default function VideoPage() {
 
     try {
       setError('')
-      const payload = { videoId: id, text }
-      const res = await api.post('/api/comments', payload)
-      const created = res?.data
+      const res = await api.post('/api/comments', { videoId: id, content: text })
+      const created = res?.data?.data || res?.data
       setComments((prev) => [created, ...prev])
       setCommentText('')
     } catch (e2) {
@@ -108,7 +125,7 @@ export default function VideoPage() {
   const onDeleteComment = async (commentId) => {
     try {
       await api.delete(`/api/comments/${commentId}`)
-      setComments((prev) => prev.filter((c) => (c._id || c.id) !== commentId))
+      setComments((prev) => prev.filter((c) => String(c?._id || c?.id) !== String(commentId)))
     } catch (e2) {
       setError(e2?.response?.data?.message || e2?.message || 'Failed to delete comment')
     }
@@ -125,7 +142,15 @@ export default function VideoPage() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
           <section>
             <div className="overflow-hidden rounded-lg border bg-white">
-              {videoSrc ? (
+              {embedSrc ? (
+                <iframe
+                  src={embedSrc}
+                  title="YouTube player"
+                  className="h-[360px] w-full lg:h-[480px]"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : videoSrc ? (
                 <video src={videoSrc} controls className="h-auto w-full bg-black" />
               ) : (
                 <div className="flex items-center justify-center p-6 text-sm text-gray-500">No video source</div>
@@ -134,24 +159,24 @@ export default function VideoPage() {
 
             <div className="mt-4">
               <h1 className="text-xl font-bold">{video?.title}</h1>
-              <p className="mt-2 text-sm text-gray-700">{video?.description}</p>
+              <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{video?.description}</p>
 
-              <div className="mt-4 flex items-center gap-3">
+              <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   disabled={likesBusy}
-                  onClick={() => onLike('like')}
+                  onClick={() => onReact('like')}
                   className="rounded bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
                 >
-                  👍 Like
+                  👍 Like {typeof video?.likes === 'number' ? `(${video.likes})` : ''}
                 </button>
                 <button
                   type="button"
                   disabled={likesBusy}
-                  onClick={() => onLike('dislike')}
+                  onClick={() => onReact('dislike')}
                   className="rounded border px-4 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
                 >
-                  👎 Dislike
+                  👎 Dislike {typeof video?.dislikes === 'number' ? `(${video.dislikes})` : ''}
                 </button>
               </div>
             </div>
@@ -176,11 +201,21 @@ export default function VideoPage() {
               {commentsBusy && <Loader text="Loading comments..." />}
 
               {!commentsBusy && (
-                <div className="mt-3 space-y-3 max-h-[420px] overflow-auto pr-1">
+                <div className="mt-3 max-h-[420px] space-y-3 overflow-auto pr-1">
                   {comments.length === 0 && <div className="text-sm text-gray-500">No comments yet.</div>}
-                  {comments.map((c) => (
-                    <Comment key={c._id || c.id} comment={c} onDelete={onDeleteComment} />
-                  ))}
+                  {comments.map((c) => {
+                    const commentAuthorId = c?.author?._id || c?.author?.id || c?.author
+                    const canDelete = !!user && String(commentAuthorId) === String(user?.id)
+                    return (
+                      <Comment
+                        key={c._id || c.id}
+                        comment={c}
+                        onDelete={onDeleteComment}
+                        canDelete={canDelete}
+                        deleting={false}
+                      />
+                    )
+                  })}
                 </div>
               )}
 
@@ -207,4 +242,5 @@ export default function VideoPage() {
     </main>
   )
 }
+
 

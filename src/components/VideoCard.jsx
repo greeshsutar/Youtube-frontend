@@ -15,6 +15,7 @@ export default function VideoCard({ video }) {
 
   return (
     <Link to={`/video/${video?._id || video?.id}`} className="group">
+
       <div className="overflow-hidden rounded-lg bg-gray-100">
         {thumbnailUrl ? (
           <img
