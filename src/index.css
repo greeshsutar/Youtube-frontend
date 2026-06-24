@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Simple global styles */
+* {
+  box-sizing: border-box;
+}
+
+/* Make video elements look good by default */
+video {
+  background: #000;
+}
+
