@@ -11,7 +11,6 @@ export default function AuthProvider({ children }) {
   })
 
   useEffect(() => {
-    // Keep axios interceptor in sync (interceptor reads localStorage each request)
     if (!token) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
@@ -19,9 +18,8 @@ export default function AuthProvider({ children }) {
   }, [token])
 
   const value = useMemo(() => {
+    // 🔥 LOGIN
     const login = async (emailOrUsername, password) => {
-      // Backend authRoutes should accept { email, password } or { username, password }
-      // We'll send both fields; backend may ignore unknown.
       const payload = {
         email: emailOrUsername,
         username: emailOrUsername,
@@ -29,37 +27,48 @@ export default function AuthProvider({ children }) {
       }
 
       const res = await api.post('/api/auth/login', payload)
-      const nextToken = res?.data?.token || res?.data?.accessToken
-      const nextUser = res?.data?.user
+
+      // ✅ FIXED HERE
+      const nextToken = res?.data?.data?.token
+      const nextUser = res?.data?.data?.user
 
       if (!nextToken) throw new Error('Login failed: missing token')
+
       setToken(nextToken)
       setUser(nextUser || null)
+
       localStorage.setItem('token', nextToken)
-      if (nextUser) localStorage.setItem('user', JSON.stringify(nextUser))
-      return res.data
-    }
-
-    const register = async ({ username, email, password }) => {
-      const payload = { username, email, password }
-      const res = await api.post('/api/auth/register', payload)
-      const nextToken = res?.data?.token || res?.data?.accessToken
-      const nextUser = res?.data?.user
-
-      if (nextToken) {
-        setToken(nextToken)
-        setUser(nextUser || null)
-        localStorage.setItem('token', nextToken)
-        if (nextUser) localStorage.setItem('user', JSON.stringify(nextUser))
-      } else {
-        // Some backends only return created user; keep current token if absent.
-        setUser(nextUser || null)
-        if (nextUser) localStorage.setItem('user', JSON.stringify(nextUser))
+      if (nextUser) {
+        localStorage.setItem('user', JSON.stringify(nextUser))
       }
 
       return res.data
     }
 
+    // 🔥 REGISTER
+    const register = async ({ username, email, password }) => {
+      const payload = { username, email, password }
+
+      const res = await api.post('/api/auth/register', payload)
+
+      // ✅ FIXED HERE
+      const nextToken = res?.data?.data?.token
+      const nextUser = res?.data?.data?.user
+
+      if (nextToken) {
+        setToken(nextToken)
+        setUser(nextUser || null)
+
+        localStorage.setItem('token', nextToken)
+        if (nextUser) {
+          localStorage.setItem('user', JSON.stringify(nextUser))
+        }
+      }
+
+      return res.data
+    }
+
+    // 🔥 LOGOUT
     const logout = () => {
       setToken(null)
       setUser(null)
@@ -72,4 +81,3 @@ export default function AuthProvider({ children }) {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
-

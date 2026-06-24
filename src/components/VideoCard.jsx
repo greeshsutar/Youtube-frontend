@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 export default function VideoCard({ video }) {
   const thumbnailUrl = useMemo(() => {
-    const thumb = video?.thumbnail || ''
+    const thumb = video?.thumbnailUrl || ''
     if (!thumb) return null
     if (thumb === 'uploads/image.jpg' || thumb.startsWith('uploads/')) {
       return `http://localhost:5000/${thumb}`

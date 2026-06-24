@@ -32,7 +32,7 @@ function UploadInner() {
       const payload = {
         title,
         description,
-        thumbnail: thumbnailUrl,
+    thumbnailUrl: thumbnailUrl,
         videoUrl,
       }
       const res = await api.post('/api/videos', payload)

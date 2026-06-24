@@ -27,9 +27,10 @@ export default function Home() {
       try {
         setLoading(true)
         setError('')
-        const res = await api.get('/api/videos')
+        const res = await api.get('/api/videos');
+        console.log(res.data);
         if (!active) return
-        setVideos(res?.data || [])
+       setVideos(res?.data?.data || [])
       } catch (e) {
         if (!active) return
         setError(e?.response?.data?.message || e?.message || 'Failed to fetch videos')
